@@ -27,7 +27,9 @@ classifiers = [
 ]
 keywords = ["supernova", "atomic", "spectra", "NIST", "catalog", "pipeline"]
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "matplotlib>=3.5",
+]
 
 [project.optional-dependencies]
 dev = [
