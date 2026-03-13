@@ -1,0 +1,65 @@
+# Author: Vasiliy Zdanovskiy
+# email: vasilyvz@gmail.com
+# Build and PyPI metadata. Flat layout: no src/, package at root.
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "supernova-atomic-pipeline"
+version = "0.1.0"
+description = "Data pipeline: atomic transitions (NIST) and supernova catalogs (OSC, ASAS-SN, etc.)."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Vasiliy Zdanovskiy", email = "vasilyvz@gmail.com" }
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Astronomy",
+]
+keywords = ["supernova", "atomic", "spectra", "NIST", "catalog", "pipeline"]
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "flake8",
+    "mypy",
+]
+
+[project.urls]
+Homepage = "https://github.com/vasilyvz/supernova"
+Repository = "https://github.com/vasilyvz/supernova"
+
+# Flat layout: package at repo root, no src/
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["supernova_atomic*"]
+exclude = ["scripts", "docs", "tests", "data", "raw", "plots"]
+
+# Optional: console script entry points (uncomment when scripts are implemented)
+# [project.scripts]
+# supernova-atomic-download = "scripts.download_atomic_data:main"
+# supernova-atomic-clean = "scripts.clean_atomic_data:main"
+
+[tool.black]
+line-length = 88
+target-version = ["py310", "py311", "py312"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_ignores = true
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = ["E203"]

@@ -1,0 +1,59 @@
+# Author: Vasiliy Zdanovskiy
+# email: vasilyvz@gmail.com
+# Git ignore rules for supernova atomic pipeline.
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Type checkers / linters
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Pipeline outputs (directories kept via .gitkeep)
+raw/*
+!raw/.gitkeep
+!raw/atomic_lines_raw/
+raw/atomic_lines_raw/*
+!raw/atomic_lines_raw/.gitkeep
+!raw/supernova_raw/
+raw/supernova_raw/*
+!raw/supernova_raw/.gitkeep
+data/*
+!data/.gitkeep
+plots/*
+!plots/.gitkeep
+
+# Code analysis indices
+code_analysis/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local config / secrets
+*.local
+.env
+.env.*
+!*.example
