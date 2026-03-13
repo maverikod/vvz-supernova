@@ -30,7 +30,7 @@ supernova/
 │   ├── clean_supernova_data.py
 │   └── build_event_summaries.py
 │
-├── data/                      # Cleaned output data (gitignored or committed by policy)
+├── data/                      # Cleaned output data (not in git; created by scripts)
 │   ├── atomic_lines_clean.csv
 │   ├── atomic_lines_by_element.csv
 │   ├── atomic_transition_summary.csv
@@ -38,11 +38,11 @@ supernova/
 │   ├── supernova_lightcurves_long.csv
 │   └── supernova_event_summary.csv
 │
-├── raw/                       # Raw downloaded data (gitignored by default)
+├── raw/                       # Raw downloaded data (not in git; created by scripts)
 │   ├── atomic_lines_raw/
 │   └── supernova_raw/
 │
-├── plots/                     # Generated plots (gitignored or committed by policy)
+├── plots/                     # Generated plots (not in git; created by scripts)
 │   ├── atomic_frequency_histogram.png
 │   ├── atomic_Aki_histogram.png
 │   ├── supernova_peak_mag_histogram.png
@@ -71,7 +71,7 @@ supernova/
 - **Repository**: initialised in project root; no submodules required for this layout.
 - **Ignore**: `.gitignore` excludes:
   - `.venv/`, `__pycache__/`, `*.pyc`, `.mypy_cache/`, `.ruff_cache/`
-  - Contents of `raw/`, `data/`, `plots/` (directories kept via `.gitkeep`; remove these rules to commit outputs)
+  - `raw/`, `data/`, `plots/` — **data are never committed**; scripts create these dirs when needed
   - `*.egg-info/`, `dist/`, `build/`, `code_analysis/`
 - **Branches**: default branch `main`; feature branches as needed.
 - **Commits**: one logical change per commit; no commits of generated data unless policy says so.

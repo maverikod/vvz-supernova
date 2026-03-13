@@ -31,19 +31,10 @@ htmlcov/
 *.swp
 *.swo
 
-# Pipeline outputs (directories kept via .gitkeep)
-raw/*
-!raw/.gitkeep
-!raw/atomic_lines_raw/
-raw/atomic_lines_raw/*
-!raw/atomic_lines_raw/.gitkeep
-!raw/supernova_raw/
-raw/supernova_raw/*
-!raw/supernova_raw/.gitkeep
-data/*
-!data/.gitkeep
-plots/*
-!plots/.gitkeep
+# Pipeline outputs — never commit data, raw, or plots
+raw/
+data/
+plots/
 
 # Code analysis indices
 code_analysis/
