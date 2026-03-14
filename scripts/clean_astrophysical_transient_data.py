@@ -227,26 +227,24 @@ def _osc_entry_to_catalog_row(entry: object) -> dict | None:
     }
 
 
-def _ensure_catalog_columns(row: dict) -> dict:
-    """Ensure all CATALOG_COLUMNS exist; missing as NaN or empty (no synthetic)."""
+def _ensure_columns(
+    row: dict,
+    columns: list[str],
+    str_cols: set[str],
+    int_cols: set[str],
+) -> dict:
+    """Ensure all columns exist; missing as NaN or empty (no synthetic)."""
     out: dict = {}
-    for col in CATALOG_COLUMNS:
+    for col in columns:
         if col in row:
             v = row[col]
-            if col in (
-                "event_id",
-                "name",
-                "transient_class",
-                "band",
-                "source_catalog",
-                "host_galaxy",
-            ):
+            if col in str_cols:
                 out[col] = (
                     ""
                     if v is None or (isinstance(v, float) and math.isnan(v))
                     else str(v)
                 )
-            elif col == "number_of_points":
+            elif col in int_cols:
                 out[col] = _safe_int(v, 0)
             else:
                 out[col] = (
@@ -255,46 +253,32 @@ def _ensure_catalog_columns(row: dict) -> dict:
                     else (_safe_float(v) if isinstance(v, str) else float("nan"))
                 )
         else:
-            if col in (
-                "event_id",
-                "name",
-                "transient_class",
-                "band",
-                "source_catalog",
-                "host_galaxy",
-            ):
-                out[col] = ""
-            elif col == "number_of_points":
-                out[col] = 0
-            else:
-                out[col] = float("nan")
+            out[col] = (
+                "" if col in str_cols else (0 if col in int_cols else float("nan"))
+            )
     return out
+
+
+_CATALOG_STR = {
+    "event_id",
+    "name",
+    "transient_class",
+    "band",
+    "source_catalog",
+    "host_galaxy",
+}
+_CATALOG_INT = {"number_of_points"}
+_LC_STR = {"event_id", "band", "instrument", "source_catalog"}
+
+
+def _ensure_catalog_columns(row: dict) -> dict:
+    """Ensure all CATALOG_COLUMNS exist; missing as NaN or empty (no synthetic)."""
+    return _ensure_columns(row, CATALOG_COLUMNS, _CATALOG_STR, _CATALOG_INT)
 
 
 def _ensure_lightcurve_columns(row: dict) -> dict:
     """Ensure LIGHTCURVE_COLUMNS exist; missing as NaN or empty (no synthetic)."""
-    out: dict = {}
-    for col in LIGHTCURVE_COLUMNS:
-        if col in row:
-            v = row[col]
-            if col in ("event_id", "band", "instrument", "source_catalog"):
-                out[col] = (
-                    ""
-                    if v is None or (isinstance(v, float) and math.isnan(v))
-                    else str(v)
-                )
-            else:
-                out[col] = (
-                    v
-                    if isinstance(v, (int, float)) and math.isfinite(v)
-                    else (_safe_float(v) if isinstance(v, str) else float("nan"))
-                )
-        else:
-            if col in ("event_id", "band", "instrument", "source_catalog"):
-                out[col] = ""
-            else:
-                out[col] = float("nan")
-    return out
+    return _ensure_columns(row, LIGHTCURVE_COLUMNS, _LC_STR, set())
 
 
 def load_osc_catalog(raw_dir: Path) -> list[dict]:
@@ -317,36 +301,18 @@ def load_osc_catalog(raw_dir: Path) -> list[dict]:
     return catalog
 
 
-def load_osc_lightcurves(_raw_dir: Path) -> list[dict]:
-    """Load light-curves from raw. OSC bulk has no photometry; return empty."""
-    return []
-
-
 def read_raw_astrophysical_transient(raw_dir: Path) -> tuple[list[dict], list[dict]]:
-    """Read catalog and light-curves from raw dir. Return (catalog_rows, lc_rows)."""
+    """Read catalog and light-curves from raw dir. OSC bulk has no photometry."""
     catalog = load_osc_catalog(raw_dir)
-    lightcurves = load_osc_lightcurves(raw_dir)
-    return catalog, lightcurves
+    return catalog, []  # lightcurves: empty until step 03 provides photometry
 
 
-def remove_exact_duplicates_catalog(rows: list[dict]) -> list[dict]:
-    """Remove exact duplicate catalog rows (by all column values)."""
+def _remove_exact_duplicates(rows: list[dict], columns: list[str]) -> list[dict]:
+    """Remove exact duplicate rows by full column tuple."""
     seen: set[tuple] = set()
     unique: list[dict] = []
     for row in rows:
-        key = _row_to_tuple(row, CATALOG_COLUMNS)
-        if key not in seen:
-            seen.add(key)
-            unique.append(row)
-    return unique
-
-
-def remove_exact_duplicates_lightcurves(rows: list[dict]) -> list[dict]:
-    """Remove exact duplicate light-curve rows."""
-    seen: set[tuple] = set()
-    unique: list[dict] = []
-    for row in rows:
-        key = _row_to_tuple(row, LIGHTCURVE_COLUMNS)
+        key = _row_to_tuple(row, columns)
         if key not in seen:
             seen.add(key)
             unique.append(row)
@@ -376,11 +342,7 @@ def verify_completeness(
     required_catalog_columns: list[str],
     required_lightcurve_columns: list[str],
 ) -> None:
-    """
-    Completeness verification: both outputs exist; required columns present;
-    no synthetic fill in key fields (we do not invent; empty/NaN is allowed).
-    Raises AssertionError if verification fails.
-    """
+    """Verify both outputs exist and have required columns. Raises on failure."""
     assert catalog_path.exists(), f"Catalog output missing: {catalog_path}"
     assert lightcurves_path.exists(), f"Lightcurves output missing: {lightcurves_path}"
     with open(catalog_path, "r", encoding="utf-8") as f:
@@ -396,10 +358,7 @@ def verify_completeness(
 
 
 def run_fill_validation(catalog_path: Path, lightcurves_path: Path) -> None:
-    """
-    For each column of each output CSV, if the column is completely empty,
-    output a clear message. No exception; informational only.
-    """
+    """If a column is completely empty, print a message. Informational only."""
     for path, columns in [
         (catalog_path, CATALOG_COLUMNS),
         (lightcurves_path, LIGHTCURVE_COLUMNS),
@@ -445,8 +404,8 @@ def main() -> None:
         write_csv(lightcurves_path, LIGHTCURVE_COLUMNS, [])
     else:
         catalog, lightcurves = read_raw_astrophysical_transient(raw_dir)
-        catalog = remove_exact_duplicates_catalog(catalog)
-        lightcurves = remove_exact_duplicates_lightcurves(lightcurves)
+        catalog = _remove_exact_duplicates(catalog, CATALOG_COLUMNS)
+        lightcurves = _remove_exact_duplicates(lightcurves, LIGHTCURVE_COLUMNS)
         write_csv(catalog_path, CATALOG_COLUMNS, catalog)
         write_csv(lightcurves_path, LIGHTCURVE_COLUMNS, lightcurves)
 
