@@ -9,6 +9,7 @@ Cleaned outputs go to `data/`; raw downloads to `raw/`. Flat layout (no `src/`).
 - **Structure and PyPI**: [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md)
 - **Task spec**: [docs/task_supernova_atomic_pipeline.txt](docs/task_supernova_atomic_pipeline.txt)
 - **Implementation spec**: [docs/IMPLEMENTATION_SPEC.md](docs/IMPLEMENTATION_SPEC.md)
+- **Third tech spec** (event tables, cluster-ready, report): [docs/Third_tech_spec.md](docs/Third_tech_spec.md)
 
 ---
 
@@ -48,6 +49,13 @@ Scripts create the following directories and files. None of `raw/`, `data/`, or 
 | **data/supernova_catalog_clean.csv** | One row per supernova (catalog-level fields). |
 | **data/supernova_lightcurves_long.csv** | One row per light-curve point (long format). |
 | **data/supernova_event_summary.csv** | One row per supernova: peak, rise/decay/width, redshift, distance, etc. |
+| **data/atomic_transition_events.csv** | Third spec: one row per atomic transition (deltaE_eV, tau_s, Q_proxy, etc.). |
+| **data/supernova_transient_events.csv** | Third spec: one row per supernova event (peak_abs_mag, L_proxy, width_days, etc.). |
+| **data/cluster_ready_events.csv** | Third spec: unified events (atomic + supernova) for clustering (logE, logt, class_hint). |
+| **report/** | Third spec report outputs (created by `build_third_spec_report.py`). |
+| **report/data_report.md** | Load/drop/remain counts, drop reasons, field presence. |
+| **report/missingness_report.csv** | Per-file missingness summary. |
+| **report/source_manifest.csv** | Source manifest from data and raw. |
 | **plots/** | Quality-control plots. |
 | **plots/atomic_frequency_histogram.png** | Histogram of line frequencies. |
 | **plots/atomic_Aki_histogram.png** | Histogram of Aki (s⁻¹). |
@@ -108,6 +116,17 @@ Execution is in **waves**. Run each wave only after the previous wave has finish
 - **Wave 4** — Generate plots:  
   `python scripts/generate_plots.py`
 
+**Third tech spec (event tables and report):** after Wave 3 you can build event tables and report:
+
+- `python scripts/build_atomic_transition_events.py` (from cleaned atomic lines)
+- `python scripts/build_supernova_transient_events.py` (from event summary + lightcurves)
+- `python scripts/build_cluster_ready.py` (from both event tables)
+- `python scripts/build_third_spec_report.py` (writes `report/data_report.md`, `report/missingness_report.csv`, `report/source_manifest.csv`)
+
+Spec-named wrappers (same effect as above waves):  
+`python scripts/download_atomic.py`, `python scripts/download_supernova.py`,  
+`python scripts/clean_atomic.py`, `python scripts/clean_supernova.py`; then `build_cluster_ready.py` and `build_third_spec_report.py`.
+
 **Serial (all in order):**
 
 ```bash
@@ -167,6 +186,14 @@ python scripts/generate_plots.py
 | Angles (ra, dec) | deg | |
 
 CSV format: UTF-8, decimal point `.`, no thousands separator in numbers.
+
+Third spec: energy in eV (deltaE_eV; conversion from cm⁻¹ uses 8065.54429); times in s (tau_s) or days; no synthetic or invented values; cells left empty when source data are missing. See **docs/Third_tech_spec.md** for column definitions and reproducibility.
+
+---
+
+## 7. Reproducibility
+
+Pipeline uses only real sources (NIST, OSC, etc.). No synthetic data; missing values are left empty. Run the same scripts in order (see Run instructions) to reproduce `data/` and `report/`. Archive produced by `python scripts/build_archive.py` includes README, scripts, raw, data, plots, and report.
 
 ---
 

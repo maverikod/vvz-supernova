@@ -1,11 +1,11 @@
 """
-Build final deliverable zip: README.md, scripts/, raw/, data/, plots/.
+Build final deliverable zip: README.md, scripts/, raw/, data/, plots/, report/.
 
 Author: Vasiliy Zdanovskiy
 email: vasilyvz@gmail.com
 
 Run: python scripts/build_archive.py
-Reads: project root (README.md, scripts/, raw/, data/, plots/).
+Reads: project root (README.md, scripts/, raw/, data/, plots/, report/).
 Outputs: supernova_atomic_data_pipeline.zip in project root (or dist/).
 Excludes: .venv, __pycache__, .git, *.pyc and other gitignore-like artifacts
   inside included directories. Does not include supernova_atomic/, docs/, etc.
@@ -17,9 +17,9 @@ import sys
 import zipfile
 from pathlib import Path
 
-# Archive name and top-level entries per task (Final archive)
+# Archive name and top-level entries (Final archive; Third spec adds report/)
 ARCHIVE_NAME = "supernova_atomic_data_pipeline.zip"
-TOP_LEVEL_ENTRIES = ("README.md", "scripts", "raw", "data", "plots")
+TOP_LEVEL_ENTRIES = ("README.md", "scripts", "raw", "data", "plots", "report")
 
 # Path segments that must not appear in archived paths (exclude per .gitignore)
 EXCLUDE_SEGMENTS = (
@@ -89,7 +89,7 @@ def build_archive(
     archive_name: str = ARCHIVE_NAME,
 ) -> Path:
     """
-    Build zip with README.md, scripts/, raw/, data/, plots/.
+    Build zip with README.md, scripts/, raw/, data/, plots/, report/.
 
     Args:
         root: Project root; default from script location.
