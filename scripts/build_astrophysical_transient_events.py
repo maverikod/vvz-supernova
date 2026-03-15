@@ -98,6 +98,14 @@ def _peak_abs_mag(
         return None
 
 
+def _count_lightcurve_data_rows(lc_path: Path) -> int:
+    """Return number of data rows in lightcurves long CSV (excludes header)."""
+    if not lc_path.exists():
+        return 0
+    with lc_path.open(newline="", encoding="utf-8") as f:
+        return sum(1 for _ in csv.DictReader(f))
+
+
 def _count_lightcurve_points(lc_path: Path, id_key: str) -> dict[str, int]:
     """Aggregate number of light-curve points per event from long table."""
     points_per_event: dict[str, int] = {}
@@ -176,6 +184,15 @@ def main() -> None:
             sys.exit(1)
         _run_fill_validation(output_path)
         return
+
+    # Blackstop: header-only lightcurves = upstream source insufficiency (step 05)
+    if lc_path.exists() and _count_lightcurve_data_rows(lc_path) == 0:
+        print(
+            "Upstream source insufficiency: lightcurves_long has no data rows "
+            "(header only). Fix step 03/04 to provide photometry-bearing raw.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     # Prefer event_id for lightcurve grouping; fallback to name
     points_per_event: dict[str, int] = {}
