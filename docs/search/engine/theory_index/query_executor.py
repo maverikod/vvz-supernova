@@ -7,7 +7,7 @@ Query executor for logical operators in search results.
 
 from __future__ import annotations
 
-from typing import Dict, List, Set
+from typing import Dict, List, Set, cast
 
 from .query_parser import QueryNode
 
@@ -18,6 +18,11 @@ def execute_query(
 ) -> List[Dict[str, str]]:
     """
     Execute query tree on term results.
+
+    AND and OR behave as set intersection and union over result IDs.
+    NOT is intentionally fail-soft and context-limited: with no document set
+    to subtract from, NOT returns no results; "A NOT B" would require
+    AND(NOT(B), A) or dedicated semantics—not implemented here.
 
     Args:
         query_node: Root of query parse tree
@@ -33,18 +38,15 @@ def execute_query(
     if query_node.op == "NOT":
         if not query_node.left:
             return []
-        # Intentional fail-soft, context-limited NOT: standalone NOT has no
-        # document set to subtract from, so we return no results. "A NOT B"
-        # style would require AND(NOT(B), A) or dedicated semantics; current
-        # design keeps NOT as no-op for the executor and does not change
-        # AND/OR behavior.
+        # Standalone NOT: no document set to subtract from → return [].
+        # AND/OR behavior is unchanged.
         return []
 
     if query_node.op == "AND":
         if not query_node.left or not query_node.right:
             return []
-        left_results = execute_query(query_node.left, term_results)
-        right_results = execute_query(query_node.right, term_results)
+        left_results = execute_query(cast(QueryNode, query_node.left), term_results)
+        right_results = execute_query(cast(QueryNode, query_node.right), term_results)
         left_ids = {_get_result_id(r) for r in left_results}
         right_ids = {_get_result_id(r) for r in right_results}
         # Intersection
@@ -61,10 +63,14 @@ def execute_query(
         if not query_node.left and not query_node.right:
             return []
         left_results = (
-            execute_query(query_node.left, term_results) if query_node.left else []
+            execute_query(cast(QueryNode, query_node.left), term_results)
+            if query_node.left
+            else []
         )
         right_results = (
-            execute_query(query_node.right, term_results) if query_node.right else []
+            execute_query(cast(QueryNode, query_node.right), term_results)
+            if query_node.right
+            else []
         )
         # Union
         seen_ids: Set[str] = set()
