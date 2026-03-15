@@ -12,8 +12,11 @@ Exit: 0 if all expected artifacts present and valid, 1 otherwise.
 from __future__ import annotations
 
 import csv
+import json
 import sys
 from pathlib import Path
+
+from supernova_atomic.nist_parser import is_nist_error_text
 
 
 def project_root() -> Path:
@@ -36,6 +39,11 @@ DATA_FILES = [
     "supernova_lightcurves_long.csv",
     "supernova_event_summary.csv",
 ]
+ATOMIC_DATA_FILES = {
+    "atomic_lines_clean.csv",
+    "atomic_lines_by_element.csv",
+    "atomic_transition_summary.csv",
+}
 
 # Minimal required columns per task (at least one identifier + key fields)
 REQUIRED_COLUMNS: dict[str, list[str]] = {
@@ -56,6 +64,7 @@ REQUIRED_COLUMNS: dict[str, list[str]] = {
         "peak_mjd",
         "rise_time_days",
         "decay_time_days",
+        "peak_width_days",
     ],
 }
 
@@ -67,6 +76,15 @@ PLOT_FILES = [
     "supernova_decay_time_histogram.png",
     "example_lightcurves.png",
 ]
+
+
+def read_csv_header_and_count(path: Path) -> tuple[list[str], int]:
+    """Read one CSV header and count data rows; return empty header if missing."""
+    if not path.exists():
+        return [], 0
+    with path.open(newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        return list(reader.fieldnames or []), sum(1 for _ in reader)
 
 
 def check_raw_dirs(root: Path) -> tuple[bool, list[str]]:
@@ -82,17 +100,101 @@ def check_raw_dirs(root: Path) -> tuple[bool, list[str]]:
             messages.append(f"Missing: {rel}/")
             ok = False
         else:
-            files = list(d.iterdir())
-            messages.append(f"  {rel}: {len(files)} file(s)")
+            files = [path for path in d.iterdir() if not path.name.startswith(".")]
+            messages.append(f"  {rel}: {len(files)} visible file(s)")
             if len(files) == 0:
                 messages.append(f"  WARNING: {rel}/ is empty")
     return ok, messages
+
+
+def check_atomic_raw_payloads(root: Path) -> tuple[bool, list[str]]:
+    """Validate atomic raw payload presence and reject NIST error-page responses."""
+    raw_dir = root / RAW_ATOMIC_DIR
+    manifest_path = raw_dir / "manifest.json"
+    messages: list[str] = []
+    if not raw_dir.is_dir():
+        return False, [f"Missing atomic raw directory: {RAW_ATOMIC_DIR}/"]
+    if not manifest_path.exists():
+        return False, [f"Missing atomic manifest: {manifest_path}"]
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return False, [f"Unreadable atomic manifest: {exc}"]
+
+    files = manifest.get("files")
+    if not isinstance(files, list) or not files:
+        return False, ["Atomic manifest has no file entries"]
+
+    ok = True
+    valid_count = 0
+    invalid_count = 0
+    for entry in files:
+        if not isinstance(entry, dict):
+            ok = False
+            invalid_count += 1
+            continue
+        filename = str(entry.get("file", ""))
+        spectrum = str(entry.get("spectrum", filename or "<unknown>"))
+        path = raw_dir / filename
+        if not path.is_file():
+            messages.append(f"Missing atomic raw file for {spectrum}: {filename}")
+            ok = False
+            invalid_count += 1
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        manifest_valid = entry.get("valid_payload")
+        if manifest_valid is False or is_nist_error_text(text):
+            messages.append(f"Invalid atomic raw payload: {spectrum} -> {filename}")
+            ok = False
+            invalid_count += 1
+            continue
+        valid_count += 1
+
+    messages.append(
+        f"  atomic raw payloads: {valid_count} valid, {invalid_count} invalid"
+    )
+    if valid_count == 0:
+        ok = False
+        messages.append("  No valid atomic raw payloads detected")
+    return ok, messages
+
+
+def _supernova_manifest_has_curated_photometry(root: Path) -> bool:
+    """
+    Return True if raw/supernova_raw/manifest.json has at least one artifact
+    with usable_photometry_points > 0 (per step 02 contract).
+    """
+    manifest_path = root / RAW_SUPERNOVA_DIR / "manifest.json"
+    if not manifest_path.is_file():
+        return False
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return False
+    if not isinstance(manifest, dict):
+        return False
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list):
+        return False
+    for entry in artifacts:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            n = int(entry.get("usable_photometry_points", 0))
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            return True
+    return False
 
 
 def check_data_csv(root: Path) -> tuple[bool, list[str]]:
     """Check data CSVs: exist, headers, required columns. Return (ok, msgs)."""
     messages: list[str] = []
     ok = True
+    has_curated_photometry = _supernova_manifest_has_curated_photometry(root)
+    lc_data_rows: int | None = None
     for filename in DATA_FILES:
         path = root / DATA_DIR / filename
         if not path.exists():
@@ -115,9 +217,52 @@ def check_data_csv(root: Path) -> tuple[bool, list[str]]:
                     ok = False
                 row_count = sum(1 for _ in reader)
                 messages.append(f"  {filename}: {row_count} row(s)")
+                if filename in ATOMIC_DATA_FILES and row_count == 0:
+                    messages.append(
+                        f"  {filename}: atomic data file has header only or no rows"
+                    )
+                    ok = False
+                if filename == "supernova_lightcurves_long.csv":
+                    lc_data_rows = row_count
         except Exception as e:
             messages.append(f"Error reading {path}: {e}")
             ok = False
+
+    if has_curated_photometry and lc_data_rows is not None and lc_data_rows == 0:
+        messages.append(
+            "  supernova_lightcurves_long.csv: curated photometry-bearing raw "
+            "artifacts exist but light-curve data has zero rows (sufficiency gate)"
+        )
+        ok = False
+
+    summary_path = root / DATA_DIR / "supernova_event_summary.csv"
+    if summary_path.exists():
+        try:
+            with summary_path.open(newline="", encoding="utf-8") as sum_f:
+                sum_reader = csv.DictReader(sum_f)
+                if sum_reader.fieldnames:
+                    rise_n = decay_n = peak_width_n = 0
+                    for row in sum_reader:
+                        v = (row.get("rise_time_days") or "").strip()
+                        if v and v not in ("nan", "NaN"):
+                            rise_n += 1
+                        v = (row.get("decay_time_days") or "").strip()
+                        if v and v not in ("nan", "NaN"):
+                            decay_n += 1
+                        v = (row.get("peak_width_days") or "").strip()
+                        if v and v not in ("nan", "NaN"):
+                            peak_width_n += 1
+                    if rise_n == 0 and decay_n == 0 and peak_width_n == 0:
+                        messages.append(
+                            "  supernova_event_summary.csv: zero non-empty values "
+                            "across rise_time_days, decay_time_days, peak_width_days "
+                            "(timing coverage gate)"
+                        )
+                        ok = False
+        except Exception as e:
+            messages.append(f"Error reading event summary for timing gate: {e}")
+            ok = False
+
     return ok, messages
 
 
@@ -135,20 +280,18 @@ def check_plots(root: Path) -> tuple[bool, list[str]]:
     return ok, messages
 
 
+def _non_empty_timing(s: str) -> bool:
+    """Return True if value is non-empty and not nan."""
+    v = (s or "").strip()
+    return bool(v and v not in ("nan", "NaN"))
+
+
 def print_summary_from_data(root: Path) -> None:
     """Print quality-control summary from data/ CSVs (task Part D)."""
     summary_path = root / DATA_DIR / "supernova_event_summary.csv"
     catalog_path = root / DATA_DIR / "supernova_catalog_clean.csv"
     atomic_clean_path = root / DATA_DIR / "atomic_lines_clean.csv"
     atomic_summary_path = root / DATA_DIR / "atomic_transition_summary.csv"
-
-    def read_csv_header_and_count(path: Path) -> tuple[list[str], int]:
-        if not path.exists():
-            return [], 0
-        with path.open(newline="", encoding="utf-8") as f:
-            r = csv.DictReader(f)
-            header = r.fieldnames or []
-            return header, sum(1 for _ in r)
 
     print("\n--- Quality summary (Part D) ---")
     # Atomic
@@ -162,38 +305,47 @@ def print_summary_from_data(root: Path) -> None:
         print(f"2. Total atomic lines: {n_lines}")
     else:
         print("2. Total atomic lines: (no atomic_lines_clean.csv)")
-    # Supernova
+    # Supernova: explicit catalog, unique SNe with LC, long-table count, timing
     if catalog_path.exists():
-        header, n_cat = read_csv_header_and_count(catalog_path)
-        print(f"3. Supernovae in catalog: {n_cat}")
-        lc_path = root / DATA_DIR / "supernova_lightcurves_long.csv"
-        if lc_path.exists():
-            _, n_lc_rows = read_csv_header_and_count(lc_path)
-            with lc_path.open(newline="", encoding="utf-8") as f:
-                r = csv.DictReader(f)
-                sn_with_lc = len({row.get("sn_name", "") for row in r})
-            print(f"4. SNe with light-curve: {sn_with_lc} (points: {n_lc_rows})")
-        else:
-            print("4. Supernovae with light-curve: (no lightcurves file)")
+        _, n_cat = read_csv_header_and_count(catalog_path)
+        print(f"3. Supernova catalog rows: {n_cat}")
     else:
-        print("3. Supernovae in catalog: (no catalog)")
-        print("4. Supernovae with light-curve: (no catalog)")
+        print("3. Supernova catalog rows: (no catalog)")
+    lc_path = root / DATA_DIR / "supernova_lightcurves_long.csv"
+    if lc_path.exists():
+        _, n_lc_rows = read_csv_header_and_count(lc_path)
+        with lc_path.open(newline="", encoding="utf-8") as f:
+            r = csv.DictReader(f)
+            sn_with_lc = len({row.get("sn_name", "") for row in r})
+        print(f"4. Unique supernovae with light-curve rows: {sn_with_lc}")
+        print(f"5. Supernova long-table row count: {n_lc_rows}")
+    else:
+        print("4. Unique supernovae with light-curve rows: (no lightcurves file)")
+        print("5. Supernova long-table row count: (no lightcurves file)")
     if summary_path.exists():
-        header, _ = read_csv_header_and_count(summary_path)
-        if header and "rise_time_days" in header:
-            with summary_path.open(newline="", encoding="utf-8") as f:
-                r = csv.DictReader(f)
-                with_rise = sum(
-                    1
-                    for row in r
-                    if row.get("rise_time_days", "").strip() not in ("", "nan", "NaN")
-                )
-            print(f"5. Supernovae with rise_time_days: {with_rise}")
-        else:
-            print("5. Supernovae with rise_time_days: (column not found)")
+        with summary_path.open(newline="", encoding="utf-8") as f:
+            r = csv.DictReader(f)
+            with_rise = sum(
+                1 for row in r if _non_empty_timing(row.get("rise_time_days", ""))
+            )
+        with summary_path.open(newline="", encoding="utf-8") as f:
+            r = csv.DictReader(f)
+            with_decay = sum(
+                1 for row in r if _non_empty_timing(row.get("decay_time_days", ""))
+            )
+        with summary_path.open(newline="", encoding="utf-8") as f:
+            r = csv.DictReader(f)
+            with_peak_width = sum(
+                1 for row in r if _non_empty_timing(row.get("peak_width_days", ""))
+            )
+        print(f"6. Rows with non-empty rise_time_days: {with_rise}")
+        print(f"7. Rows with non-empty decay_time_days: {with_decay}")
+        print(f"8. Rows with non-empty peak_width_days: {with_peak_width}")
     else:
-        print("5. Supernovae with rise_time_days: (no event summary)")
-    print("6. Sources: (see source_catalog in data files)")
+        print("6. Rows with non-empty rise_time_days: (no event summary)")
+        print("7. Rows with non-empty decay_time_days: (no event summary)")
+        print("8. Rows with non-empty peak_width_days: (no event summary)")
+    print("9. Sources: (see source_catalog in data files)")
     print("---")
 
 
@@ -205,6 +357,13 @@ def main() -> int:
 
     print("\n--- Raw directories ---")
     ok, msgs = check_raw_dirs(root)
+    for m in msgs:
+        print(m)
+    if not ok:
+        all_ok = False
+
+    print("\n--- Atomic raw payloads ---")
+    ok, msgs = check_atomic_raw_payloads(root)
     for m in msgs:
         print(m)
     if not ok:
