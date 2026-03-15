@@ -157,6 +157,80 @@ def _safe_int(s: str | float | None, default: int = 0) -> int:
         return default
 
 
+def _osc_entry_to_catalog_row(entry: object) -> dict | None:
+    """Map one OSC catalog entry to catalog schema. Returns None if no name."""
+    if not isinstance(entry, dict):
+        return None
+    name = entry.get("name")
+    if not name or not str(name).strip():
+        return None
+    sn_name = str(name).strip()
+    ra_s = _first_value(entry.get("ra"), "ra")
+    dec_s = _first_value(entry.get("dec"), "dec")
+    discovery_s = _first_value(entry.get("discoverdate"), "discoverdate")
+    peak_s = _first_value(entry.get("maxdate"), "maxdate")
+    peak_mag_s = _first_value(entry.get("maxappmag"), "maxappmag")
+    host_s = _first_value(entry.get("host"), "host")
+    z_s = _first_value(entry.get("redshift"), "redshift")
+    lum_s = _first_value(entry.get("lumdist"), "lumdist")
+    claimed_s = _first_value(entry.get("claimedtype"), "claimedtype")
+    ra = _parse_ra_hms(ra_s) if ra_s else float("nan")
+    dec = _parse_dec_dms(dec_s) if dec_s else float("nan")
+    discovery_mjd = _parse_date_mjd(discovery_s) if discovery_s else float("nan")
+    peak_mjd = _parse_date_mjd(peak_s) if peak_s else float("nan")
+    peak_mag = _safe_float(peak_mag_s)
+    redshift = _safe_float(z_s)
+    lumdist = _safe_float(lum_s)
+    luminosity_distance_Mpc = lumdist if math.isfinite(lumdist) else float("nan")
+    distance_modulus = float("nan")
+    if math.isfinite(luminosity_distance_Mpc) and luminosity_distance_Mpc > 0:
+        try:
+            distance_modulus = 5.0 * math.log10(luminosity_distance_Mpc * 1e6 / 10.0)
+        except (ValueError, ZeroDivisionError):
+            pass
+    return {
+        "sn_name": sn_name,
+        "source_catalog": OSC_SOURCE,
+        "ra": ra,
+        "dec": dec,
+        "redshift": redshift,
+        "host_galaxy": host_s if host_s else "",
+        "sn_type": claimed_s if claimed_s else "",
+        "discovery_mjd": discovery_mjd,
+        "peak_mjd": peak_mjd,
+        "peak_mag": peak_mag,
+        "band": "",
+        "distance_modulus": distance_modulus,
+        "luminosity_distance_Mpc": luminosity_distance_Mpc,
+        "lightcurve_points_count": 0,
+    }
+
+
+def load_osc_bulk_catalog(raw_dir: Path) -> list[dict]:
+    """Load catalog from osc_catalog.json: dict->values(), list->items, else []."""
+    path = raw_dir / "osc_catalog.json"
+    if not path.is_file():
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return []
+    entries: list[object]
+    if isinstance(data, dict):
+        entries = list(data.values())
+    elif isinstance(data, list):
+        entries = data
+    else:
+        return []
+    catalog: list[dict] = []
+    for entry in entries:
+        row = _osc_entry_to_catalog_row(entry)
+        if row is not None:
+            catalog.append(row)
+    return catalog
+
+
 def _normalize_photometry_row(event_name: str, sample: dict) -> dict | None:
     """Normalize one photometry sample to long-table row.
     Require finite time and (mag or flux)."""
