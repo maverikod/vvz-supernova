@@ -152,7 +152,10 @@ def compute_rise_decay_width(
     """
     Compute rise_time_days, decay_time_days, peak_width_days from light-curve.
 
-    lc_points: list of (mjd, mag) for one SN; mag can be None for missing.
+    Operates on a single-band (mjd, mag) series. Uses 1-mag threshold definition:
+    rise/decay from/to first epoch at which mag is within 1 mag of peak.
+
+    lc_points: list of (mjd, mag) for one SN and one band; mag can be None.
     peak_mjd, peak_mag: from catalog or inferred from LC (peak = min mag).
 
     Returns (rise_days, decay_days, width_days); each None if not computable.
@@ -189,55 +192,122 @@ def compute_rise_decay_width(
     return (rise, decay, width)
 
 
+def _choose_band(
+    lc_by_band: dict[str, list[tuple[float, float]]],
+    catalog_peak_mag: float | None,
+) -> str:
+    """
+    Choose exactly one band for timing using deterministic tie-break rule.
+
+    Rule: (1) prefer band with largest number of valid (mjd, mag) rows;
+    (2) if tied, prefer band that contains a finite catalog peak_mag match;
+    (3) if still tied, lexicographically smallest band string;
+    (4) if all valid rows have empty band, use the empty-string bucket.
+    """
+    if not lc_by_band:
+        return ""
+
+    def has_peak_mag_match(points: list[tuple[float, float]]) -> bool:
+        if catalog_peak_mag is None:
+            return False
+        return any(p[1] == catalog_peak_mag for p in points)
+
+    def key(band: str) -> tuple[int, int, str]:
+        pts = lc_by_band[band]
+        n = len(pts)
+        match = 1 if has_peak_mag_match(pts) else 0
+        return (n, match, band)
+
+    bands_sorted = sorted(
+        lc_by_band.keys(),
+        key=lambda b: (-key(b)[0], -key(b)[1], key(b)[2]),
+    )
+    return bands_sorted[0]
+
+
+def _infer_peak_from_points(
+    points: list[tuple[float, float]],
+) -> tuple[float | None, float | None]:
+    """
+    Infer (peak_mjd, peak_mag) from series: minimum magnitude; if tie, earliest mjd.
+    """
+    if not points:
+        return (None, None)
+    min_mag = min(p[1] for p in points)
+    min_points = [p for p in points if p[1] == min_mag]
+    peak_mjd = min(p[0] for p in min_points)
+    return (peak_mjd, min_mag)
+
+
+def _str_num(v: float | int | None) -> str:
+    """Convert numeric value to string for CSV; None becomes empty string."""
+    if v is None:
+        return ""
+    return str(v)
+
+
 def build_summary_rows(
     catalog: list[dict[str, str]], lightcurves: list[dict[str, str]]
 ) -> list[dict[str, str]]:
     """
     Build one summary row per catalog entry from catalog + light-curves.
 
+    Groups light-curve rows by sn_name then by band; chooses exactly one band
+    per object (largest point count, then catalog peak_mag match, then lex
+    smallest band). Rise/decay/width are computed from that band only.
     Uses catalog for sn_name, sn_type, source_catalog, peak_mjd, peak_mag,
-    lightcurve_points_count, redshift, luminosity_distance_Mpc. Computes
-    rise_time_days, decay_time_days, peak_width_days from light-curves when
-    possible; otherwise writes empty string (CSV NaN).
+    lightcurve_points_count, redshift, luminosity_distance_Mpc.
     """
-    # Group LC points by sn_name (only points with valid mjd and mag)
-    lc_by_sn: dict[str, list[tuple[float, float]]] = {}
+    # Filter: finite mjd, finite mag, non-empty sn_name. Group by sn_name, band.
+    lc_by_sn_band: dict[str, dict[str, list[tuple[float, float]]]] = {}
     for row in lightcurves:
         name = (row.get("sn_name") or "").strip()
         if not name:
             continue
         mjd = _float(row.get("mjd") or "")
         mag = _float(row.get("mag") or "")
-        if mjd is not None and mag is not None:
-            lc_by_sn.setdefault(name, []).append((mjd, mag))
+        if mjd is None or mag is None:
+            continue
+        band = (row.get("band") or "").strip()
+        lc_by_sn_band.setdefault(name, {}).setdefault(band, []).append((mjd, mag))
 
     out: list[dict[str, str]] = []
     for row in catalog:
         sn_name = (row.get("sn_name") or "").strip()
         if not sn_name:
             continue
-        peak_mjd = _float(row.get("peak_mjd") or "")
-        peak_mag = _float(row.get("peak_mag") or "")
-        lc_points = lc_by_sn.get(sn_name, [])
-        rise, decay, width = compute_rise_decay_width(lc_points, peak_mjd, peak_mag)
-        lc_count = _int(row.get("lightcurve_points_count") or "")
-        if lc_count is None and lc_points:
-            lc_count = len(lc_points)
-        elif lc_count is None:
-            lc_count = 0
+        catalog_peak_mjd = _float(row.get("peak_mjd") or "")
+        catalog_peak_mag = _float(row.get("peak_mag") or "")
+        lc_by_band = lc_by_sn_band.get(sn_name, {})
+        chosen_band = _choose_band(lc_by_band, catalog_peak_mag)
+        points = lc_by_band.get(chosen_band, [])
+        points = sorted(points, key=lambda p: p[0])
 
-        def _str_num(v: float | int | None) -> str:
-            if v is None:
-                return ""
-            return str(v)
+        use_peak_mjd: float | None
+        use_peak_mag: float | None
+        if catalog_peak_mjd is not None and catalog_peak_mag is not None:
+            use_peak_mjd = catalog_peak_mjd
+            use_peak_mag = catalog_peak_mag
+        else:
+            use_peak_mjd, use_peak_mag = _infer_peak_from_points(points)
+
+        rise, decay, width = compute_rise_decay_width(
+            points, use_peak_mjd, use_peak_mag
+        )
+
+        lc_count = _int(row.get("lightcurve_points_count") or "")
+        if lc_count is not None and lc_count > 0:
+            pass
+        else:
+            lc_count = len(points) if points else 0
 
         out.append(
             {
                 "sn_name": sn_name,
                 "sn_type": (row.get("sn_type") or "").strip() or "",
                 "source_catalog": (row.get("source_catalog") or "").strip() or "",
-                "peak_mjd": _str_num(peak_mjd),
-                "peak_mag": _str_num(peak_mag),
+                "peak_mjd": _str_num(use_peak_mjd),
+                "peak_mag": _str_num(use_peak_mag),
                 "rise_time_days": _str_num(rise),
                 "decay_time_days": _str_num(decay),
                 "peak_width_days": _str_num(width),
