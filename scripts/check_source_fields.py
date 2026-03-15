@@ -6,7 +6,8 @@ email: vasilyvz@gmail.com
 
 Run from project root: python scripts/check_source_fields.py
 Performs sample requests to NIST ASD and OAC, reports which required
-fields appear. See docs/SOURCE_FIELD_VERIFICATION.md for full report.
+fields appear. Required field lists: ATOMIC_REQUIRED, SN_CATALOG_REQUIRED,
+SN_LIGHTCURVE_REQUIRED in this script; context: docs/refactoring/TECH_SPEC.md.
 """
 
 from __future__ import annotations
@@ -150,6 +151,7 @@ def check_oac_api() -> tuple[bool, list[str]]:
         event = data if isinstance(data, dict) else {}
 
     def key_mapping() -> list[str]:
+        """Map OAC event keys to required SN/catalog field names for reporting."""
         out = []
         if not isinstance(event, dict):
             return ["(not a dict)"]
@@ -182,14 +184,14 @@ def check_oac_api() -> tuple[bool, list[str]]:
     found = key_mapping()
     if not found:
         keys = list(event.keys())[:15] if isinstance(event, dict) else []
-        found = [f"Top-level keys: {keys}"]
+        found = ["Top-level keys: " + str(keys)]
     return True, found
 
 
 def main() -> int:
     """Run source checks and print report."""
     print("Source field check (required task parameters)\n")
-    print("See docs/SOURCE_FIELD_VERIFICATION.md for full mapping.\n")
+    print("Required fields: see script constants; docs/refactoring/TECH_SPEC.md\n")
 
     all_ok = True
 
@@ -218,7 +220,7 @@ def main() -> int:
     print("\n--- Summary ---")
     if all_ok:
         print("  NIST ASD and OAC responded. Parameters obtainable from")
-        print("  stated sources (see SOURCE_FIELD_VERIFICATION.md).")
+        print("  stated sources (see current TZ for field list).")
         return 0
     print("  One or more checks failed; review output above.")
     return 1
