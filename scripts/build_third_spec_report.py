@@ -54,6 +54,17 @@ def main() -> None:
     n_sn_summary = _count_csv_rows(data_dir / "supernova_event_summary.csv")
     n_sn_events = _count_csv_rows(data_dir / "supernova_transient_events.csv")
     n_cluster = _count_csv_rows(data_dir / "cluster_ready_events.csv")
+    summary_path = data_dir / "supernova_event_summary.csv"
+    transient_path = data_dir / "supernova_transient_events.csv"
+    sn_rise = _count_non_empty_column(summary_path, "rise_time_days")
+    sn_decay = _count_non_empty_column(summary_path, "decay_time_days")
+    sn_width = _count_non_empty_column(summary_path, "peak_width_days")
+    sn_has_lc_1 = 0
+    if transient_path.exists():
+        with transient_path.open(newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                if (row.get("has_lightcurve") or "").strip() == "1":
+                    sn_has_lc_1 += 1
 
     # Source manifest from raw manifests
     source_rows: list[dict[str, str]] = []
@@ -77,13 +88,21 @@ def main() -> None:
         try:
             m = json.loads(sn_manifest_path.read_text(encoding="utf-8"))
             for s in m.get("sources_used", []):
+                note = s.get("raw_file", "")
+                if not note and s.get("dataset_identifier"):
+                    note = "curated subset: " + s.get("dataset_identifier", "")
+                elif not note:
+                    note = s.get("bulk_file_url", "") or "osc_catalog.json"
+                files_count = (
+                    str(s.get("event_count", 1)) if s.get("dataset_identifier") else "1"
+                )
                 source_rows.append(
                     {
                         "source": s.get("name", ""),
                         "url": s.get("url", ""),
                         "download_date_utc": m.get("download_date_utc", ""),
-                        "files_count": "1",
-                        "note": s.get("raw_file", ""),
+                        "files_count": files_count,
+                        "note": note,
                     }
                 )
         except (json.JSONDecodeError, OSError):
@@ -99,10 +118,11 @@ def main() -> None:
         w.writeheader()
         w.writerows(source_rows)
 
-    # Missingness: atomic_transition_events and supernova_transient_events
+    # Missingness: atomic_events, supernova_event_summary, supernova_transient_events
     missing_rows: list[dict[str, str]] = []
     for name, path in [
         ("atomic_transition_events", data_dir / "atomic_transition_events.csv"),
+        ("supernova_event_summary", data_dir / "supernova_event_summary.csv"),
         ("supernova_transient_events", data_dir / "supernova_transient_events.csv"),
     ]:
         if not path.exists():
@@ -149,6 +169,17 @@ def main() -> None:
         f"| supernova_transient_events | {n_sn_summary} | {dropped_sn} | "
         f"{n_sn_events} |",
         f"| cluster_ready_events | — | — | {n_cluster} |",
+        "",
+        "## Supernova timing coverage",
+        "",
+        "| Metric | Value |",
+        "|--------|-------|",
+        f"| supernova_event_summary.csv row count | {n_sn_summary} |",
+        f"| supernova_transient_events.csv row count | {n_sn_events} |",
+        f"| Rows with non-empty rise_time_days | {sn_rise} |",
+        f"| Rows with non-empty decay_time_days | {sn_decay} |",
+        f"| Rows with non-empty peak_width_days | {sn_width} |",
+        f"| Rows with has_lightcurve=1 | {sn_has_lc_1} |",
         "",
         "## Drop reasons",
         "",
