@@ -234,6 +234,7 @@ def verify_artifact(
         )
     if artifact.get("usable_photometry_points") != usable:
         return False, (
-            f"Artifact usable_photometry_points does not match raw file for '{event_name}'."
+            "Artifact usable_photometry_points does not match raw file "
+            f"for '{event_name}'."
         )
     return True, f"Artifact '{event_name}' verified with {usable} usable rows."

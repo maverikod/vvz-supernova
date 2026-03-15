@@ -6,16 +6,24 @@ email: vasilyvz@gmail.com
 
 Run: python scripts/download_supernova_data.py
 Output: raw/supernova_raw/ with raw files and manifest (source, date, URL).
-Sources: Open Supernova Catalog (OSC) via GitHub bulk catalog.json.
-ASAS-SN, ZTF, Pan-STARRS: not implemented; documented in manifest.
+Sources: Open Supernova Catalog (OSC) bulk catalog.json; OAC API curated events
+(SN2014J, SN2011fe, SN1987A). ASAS-SN, ZTF, Pan-STARRS: not implemented.
 """
 
 from __future__ import annotations
 
 import json
+import sys
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+
+from supernova_atomic.oac_event_artifacts import (
+    CURATED_OAC_EVENTS,
+    OAC_SOURCE_NAME,
+    OAC_SOURCE_URL,
+    download_event_artifact,
+)
 
 # Open Supernova Catalog: bulk JSON from astrocatalogs/supernovae output.
 OSC_CATALOG_URL = (
@@ -70,12 +78,19 @@ def write_manifest(
     raw_dir: Path,
     sources_used: list[dict],
     sources_skipped: list[dict],
+    artifacts: list[dict],
 ) -> None:
-    """Write manifest.json with provenance: sources, URLs, download date."""
+    """
+    Write manifest.json with download_date_utc, sources_used, sources_skipped,
+    artifacts, and note. Artifacts must have keys: event_name, metadata_url,
+    photometry_url, raw_file, download_date_utc, photometry_points,
+    usable_photometry_points, sha256.
+    """
     manifest = {
         "download_date_utc": datetime.now(timezone.utc).isoformat(),
         "sources_used": sources_used,
         "sources_skipped": sources_skipped,
+        "artifacts": artifacts,
         "note": "Raw files only; data/ and plots/ from other scripts.",
     }
     path = raw_dir / "manifest.json"
@@ -84,7 +99,7 @@ def write_manifest(
 
 
 def main() -> None:
-    """Download supernova raw data and write manifest with provenance."""
+    """Download supernova raw data (OSC bulk + OAC curated events) and manifest."""
     root = project_root()
     raw_dir = root / "raw" / "supernova_raw"
     ensure_raw_dir(raw_dir)
@@ -113,8 +128,39 @@ def main() -> None:
             }
         )
         print(f"OSC download failed: {msg}")
+        sys.exit(1)
 
-    # Document other catalogs as not implemented (per step: skip and document).
+    # OAC curated events: all three must succeed with usable_photometry_points > 0.
+    artifacts: list[dict] = []
+    for event_name in CURATED_OAC_EVENTS:
+        artifact, failure = download_event_artifact(raw_dir, event_name)
+        if artifact is None and failure is not None:
+            print(f"OAC download failed for {event_name}: {failure['reason']}")
+            sys.exit(1)
+        if artifact is None:
+            print(f"OAC download failed for {event_name}: unknown error")
+            sys.exit(1)
+        if artifact.get("usable_photometry_points", 0) == 0:
+            print(
+                f"OAC artifact {event_name} has no usable photometry points; aborting."
+            )
+            sys.exit(1)
+        artifacts.append(artifact)
+        print(
+            f"Downloaded {artifact['event_name']} with "
+            f"{artifact['usable_photometry_points']} usable photometry points."
+        )
+
+    sources_used.append(
+        {
+            "name": OAC_SOURCE_NAME,
+            "url": OAC_SOURCE_URL,
+            "dataset_identifier": "SN2014J,SN2011fe,SN1987A",
+            "event_count": len(artifacts),
+        }
+    )
+
+    # Document other catalogs as not implemented (skip and document).
     for name, url in [
         ("ASAS-SN", "https://asas-sn.osu.edu/"),
         ("ZTF", "https://www.ztf.caltech.edu/"),
@@ -128,7 +174,7 @@ def main() -> None:
             }
         )
 
-    write_manifest(raw_dir, sources_used, sources_skipped)
+    write_manifest(raw_dir, sources_used, sources_skipped, artifacts)
     print(f"Manifest written to {raw_dir / 'manifest.json'}")
 
 
