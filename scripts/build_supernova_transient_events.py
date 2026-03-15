@@ -75,7 +75,18 @@ def _peak_abs_mag(
 
 
 def main() -> None:
-    """Build supernova_transient_events.csv from event summary and lightcurves."""
+    """
+    Build supernova_transient_events.csv from event summary and lightcurves.
+
+    Contract (projection only; no timing recomputation):
+    - Point count: from supernova_lightcurves_long.csv when present, else
+      lightcurve_points_count from supernova_event_summary.csv.
+    - number_of_points: that count for each row.
+    - has_lightcurve: 1 iff number_of_points >= MIN_LIGHTCURVE_POINTS_VALID, else 0.
+    - Timing fields (rise_time_days, decay_time_days, width_days): from summary as-is.
+    - Rows without computable peak_abs_mag (peak_mag + luminosity_distance_Mpc)
+      are dropped.
+    """
     root = project_root()
     data_dir = root / "data"
     summary_path = data_dir / "supernova_event_summary.csv"
@@ -88,7 +99,7 @@ def main() -> None:
             w.writeheader()
         return
 
-    # Count LC points per SN from lightcurves long table
+    # Count points per SN from long table (repaired timing coverage from upstream).
     lc_path = data_dir / "supernova_lightcurves_long.csv"
     points_per_sn: dict[str, int] = {}
     if lc_path.exists():
@@ -116,11 +127,17 @@ def main() -> None:
             rise = _float(row.get("rise_time_days"))
             decay = _float(row.get("decay_time_days"))
             width = _float(row.get("peak_width_days"))
+            # Point count: long-table if present, else summary lightcurve_points_count.
             n_pts_summary = _int(row.get("lightcurve_points_count"))
-            n_pts = points_per_sn.get(name, n_pts_summary or 0)
+            n_pts = points_per_sn.get(
+                name, n_pts_summary if n_pts_summary is not None else 0
+            )
+            # has_lightcurve = 1 iff number_of_points >= MIN_LIGHTCURVE_POINTS_VALID.
             has_lc = n_pts >= MIN_LIGHTCURVE_POINTS_VALID
             t0 = (
-                (rise + decay) / 2.0 if rise is not None and decay is not None else None
+                (rise + decay) / 2.0
+                if rise is not None and decay is not None
+                else None
             )
             asymmetry = (
                 decay / rise
@@ -154,7 +171,7 @@ def main() -> None:
                 "width_norm": _str_val(width_norm),
                 "event_strength": _str_val(event_strength),
                 "has_lightcurve": "1" if has_lc else "0",
-                "number_of_points": str(n_pts) if n_pts is not None else "",
+                "number_of_points": str(n_pts),
             }
             rows_out.append(out_row)
 
