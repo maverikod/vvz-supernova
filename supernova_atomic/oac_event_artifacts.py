@@ -30,6 +30,8 @@ USER_AGENT = "supernova-atomic-pipeline/1.0"
 REQUEST_TIMEOUT_SEC = 120
 MAX_DOWNLOAD_ATTEMPTS = 3
 SIGNAL_FIELDS = ("magnitude", "flux", "fluxdensity", "counts")
+EXCLUDED_TYPE_MARKERS = ("candidate", "grb", "nova", "lgrb", "sn impostor")
+GENERIC_EXCLUDED_TYPE_MARKERS = ("candidate",)
 
 
 def event_name_to_raw_filename(event_name: str) -> str:
@@ -39,6 +41,206 @@ def event_name_to_raw_filename(event_name: str) -> str:
     """
     stem = "".join(c if c.isalnum() else "_" for c in event_name).strip("_").lower()
     return f"{stem}_event.json"
+
+
+def _first_value(values: object) -> str:
+    """Return the first OSC-style value string or empty string."""
+    if not isinstance(values, list) or not values or not isinstance(values[0], dict):
+        return ""
+    value = values[0].get("value")
+    return str(value).strip() if value is not None else ""
+
+
+def _safe_sort_float(value: str) -> float:
+    """Return a finite float for sorting or +inf when unavailable."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return float("inf")
+    return number if number == number else float("inf")
+
+
+def _is_extended_candidate(entry: dict[str, Any]) -> bool:
+    """Return True when one OSC bulk entry is worth attempting via OAC API."""
+    name = str(entry.get("name") or "").strip()
+    if not name.startswith("SN") or name in CURATED_OAC_EVENTS:
+        return False
+
+    claimed_type = _first_value(entry.get("claimedtype")).lower()
+    if not claimed_type or any(
+        marker in claimed_type for marker in EXCLUDED_TYPE_MARKERS
+    ):
+        return False
+
+    max_mag = _first_value(entry.get("maxappmag"))
+    max_date = _first_value(entry.get("maxdate"))
+    return bool(max_mag and max_date)
+
+
+def _is_generic_transient_candidate(entry: dict[str, Any]) -> bool:
+    """Return True when one OSC bulk entry is worth trying as a generic transient."""
+    name = str(entry.get("name") or "").strip()
+    if not name:
+        return False
+
+    claimed_type = _first_value(entry.get("claimedtype")).lower()
+    if claimed_type and any(
+        marker in claimed_type for marker in GENERIC_EXCLUDED_TYPE_MARKERS
+    ):
+        return False
+
+    has_rankable_metadata = any(
+        _first_value(entry.get(field))
+        for field in ("claimedtype", "discoverdate", "maxdate", "maxappmag")
+    )
+    return has_rankable_metadata
+
+
+def _event_family(name: str) -> str:
+    """Group transient names into broad families for diversified selection."""
+    upper_name = name.upper()
+    for prefix, family in (
+        ("SN", "sn"),
+        ("ASASSN", "asas_sn"),
+        ("GAIA", "gaia"),
+        ("AT", "at"),
+        ("PTF", "ptf"),
+        ("PS1", "ps1"),
+        ("PSC", "panstarrs"),
+        ("VVV", "vvv"),
+        ("SPIRITS", "spirits"),
+    ):
+        if upper_name.startswith(prefix):
+            return family
+    return "other"
+
+
+def select_extended_oac_event_names(
+    osc_catalog_path: Path,
+    *,
+    exclude_event_names: set[str] | None = None,
+    limit: int,
+) -> list[str]:
+    """
+    Select additional OSC event names for OAC photometry download.
+
+    Deterministic policy:
+    - keep only SN-prefixed objects with a non-empty claimed type;
+    - reject obvious non-supernova classes like candidates, GRBs, and novae;
+    - require both maxappmag and maxdate in OSC bulk metadata;
+    - sort by brighter peak magnitude first, then by event name.
+    """
+    exclude = exclude_event_names or set()
+    if limit <= 0 or not osc_catalog_path.is_file():
+        return []
+
+    try:
+        payload = json.loads(osc_catalog_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    entries: list[object]
+    if isinstance(payload, dict):
+        entries = list(payload.values())
+    elif isinstance(payload, list):
+        entries = payload
+    else:
+        return []
+
+    ranked: list[tuple[float, str]] = []
+    seen: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict) or not _is_extended_candidate(entry):
+            continue
+        name = str(entry.get("name") or "").strip()
+        if not name or name in exclude or name in seen:
+            continue
+        seen.add(name)
+        ranked.append((_safe_sort_float(_first_value(entry.get("maxappmag"))), name))
+
+    ranked.sort(key=lambda item: (item[0], item[1]))
+    return [name for _, name in ranked[:limit]]
+
+
+def select_extended_transient_event_names(
+    osc_catalog_path: Path,
+    *,
+    exclude_event_names: set[str] | None = None,
+    limit: int,
+) -> list[str]:
+    """
+    Select additional transient event names for OAC photometry download.
+
+    Generic policy for the astrophysical branch:
+    - accept any named transient-like object, not just SN-prefixed entries;
+    - reject obvious unresolved candidates;
+    - prefer objects with brighter maxappmag when available;
+    - require at least one rankable metadata field so downloads are not random noise.
+    """
+    exclude = exclude_event_names or set()
+    if limit <= 0 or not osc_catalog_path.is_file():
+        return []
+
+    try:
+        payload = json.loads(osc_catalog_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    entries: list[object]
+    if isinstance(payload, dict):
+        entries = list(payload.values())
+    elif isinstance(payload, list):
+        entries = payload
+    else:
+        return []
+
+    ranked_by_family: dict[str, list[tuple[float, str]]] = {}
+    seen: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict) or not _is_generic_transient_candidate(entry):
+            continue
+        name = str(entry.get("name") or "").strip()
+        if not name or name in exclude or name in seen:
+            continue
+        seen.add(name)
+        family = _event_family(name)
+        ranked_by_family.setdefault(family, []).append(
+            (_safe_sort_float(_first_value(entry.get("maxappmag"))), name)
+        )
+
+    family_order = [
+        "sn",
+        "gaia",
+        "asas_sn",
+        "at",
+        "ptf",
+        "ps1",
+        "panstarrs",
+        "vvv",
+        "spirits",
+        "other",
+    ]
+    available_families = [
+        family for family in family_order if family in ranked_by_family
+    ]
+    for family in available_families:
+        ranked_by_family[family].sort(key=lambda item: (item[0], item[1]))
+
+    selected_names: list[str] = []
+    family_index = 0
+    while available_families and len(selected_names) < limit:
+        family = available_families[family_index]
+        family_ranked = ranked_by_family[family]
+        _, name = family_ranked.pop(0)
+        selected_names.append(name)
+        if not family_ranked:
+            available_families.pop(family_index)
+            if not available_families:
+                break
+            family_index %= len(available_families)
+            continue
+        family_index = (family_index + 1) % len(available_families)
+    return selected_names
 
 
 def build_metadata_url(event_name: str) -> str:

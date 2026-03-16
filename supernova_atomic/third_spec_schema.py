@@ -5,21 +5,21 @@ Author: Vasiliy Zdanovskiy
 email: vasilyvz@gmail.com
 
 Parity rule, energy conversion (cm-1 to eV), ID formats, class_hint mapping.
-See docs/Third_tech_spec.md.
+See docs/TECH_SPEC.md.
 """
 
 from __future__ import annotations
 
 import re
 
-# Energy: E_eV = E_cm-1 / 8065.54429 (Third_tech_spec ADDITIONAL SPECIFICATIONS)
+# Energy: E_eV = E_cm-1 / 8065.54429 (current TZ)
 CM1_TO_EV = 8065.54429
 
 # class_hint per spec: atomic -> atomic_transition, supernova -> stellar_transient
 CLASS_HINT_ATOMIC = "atomic_transition"
 CLASS_HINT_SUPERNOVA = "stellar_transient"
 
-# Light curve valid only if number_of_points >= 20 (Third_tech_spec item 6)
+# Light curve valid only if number_of_points >= 20 (current TZ)
 MIN_LIGHTCURVE_POINTS_VALID = 20
 
 # Output column names for Third spec tables

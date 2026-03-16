@@ -6,7 +6,7 @@ email: vasilyvz@gmail.com
 
 Defines canonical field names, minimum columns for atomic/astrophysical/unified/
 cluster-ready passport CSVs, passport_status values, and validity rules per
-docs/tech_specs/TECH_SPEC.md §§5, 6, 9, 11. No I/O; constants and pure functions only.
+docs/TECH_SPEC.md §§5, 6, 9, 11. No I/O; constants and pure functions only.
 """
 
 from __future__ import annotations

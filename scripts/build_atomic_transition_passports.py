@@ -5,7 +5,7 @@ Author: Vasiliy Zdanovskiy
 email: vasilyvz@gmail.com
 
 Reads data/atomic_transition_events.csv and optionally data/atomic_lines_clean.csv;
-applies translation formulas from docs/tech_specs/TECH_SPEC.md §7;
+applies translation formulas from docs/TECH_SPEC.md §7;
 writes data/atomic_transition_passports.csv with columns per §11.1;
 assigns passport_status per §7.4; runs completeness and fill validation.
 Run: python scripts/build_atomic_transition_passports.py
@@ -13,8 +13,10 @@ Run: python scripts/build_atomic_transition_passports.py
 
 from __future__ import annotations
 
+import argparse
 import csv
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -22,6 +24,7 @@ from supernova_atomic.atomic_schema import parse_float_or_nan
 from supernova_atomic.passport_schema import (
     ATOMIC_TRANSITION_PASSPORTS_COLUMNS,
     C_THETA_PENDING,
+    COMPLETE,
     INVALID,
     KAPPA_EFF_M_INV,
     L_EFF_M,
@@ -29,6 +32,7 @@ from supernova_atomic.passport_schema import (
 
 DOMAIN_ATOMIC = "atomic"
 TWO_PI = 2.0 * math.pi
+DEFAULT_C_THETA_ENV_VAR = "SUPERNOVA_C_THETA"
 
 
 def project_root() -> Path:
@@ -94,27 +98,82 @@ def _to_csv_value(v: float | str | None) -> str:
     return str(v).strip()
 
 
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments for the build script."""
+    parser = argparse.ArgumentParser(
+        description="Build atomic transition passports from atomic events."
+    )
+    parser.add_argument(
+        "--c-theta",
+        type=float,
+        default=None,
+        help=(
+            "Physical-enabled run input. If omitted, the script falls back to "
+            f"the {DEFAULT_C_THETA_ENV_VAR} environment variable."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def _resolve_c_theta(cli_value: float | None) -> float | None:
+    """
+    Resolve c_theta from a single shared source chain: CLI first, then env var.
+
+    Returns None when c_theta is absent, non-finite, or non-positive.
+    """
+    candidate = cli_value
+    if candidate is None:
+        env_value = os.environ.get(DEFAULT_C_THETA_ENV_VAR)
+        candidate = parse_float_or_nan(env_value)
+    if candidate is None:
+        return None
+    if not math.isfinite(candidate) or candidate <= 0:
+        return None
+    return candidate
+
+
 def _passport_status(
-    omega_mode: float, t_char_s: float, _c_theta_available: bool
+    omega_mode: float,
+    t_char_s: float,
+    q_eff: float,
+    chi_loss: float,
+    tail_strength: float,
+    tail_energy_proxy: float,
+    shape_1: float,
+    shape_2: float,
+    c_theta: float | None,
 ) -> str:
     """
     Assign passport_status per §7.4.
     invalid if omega_mode <= 0 or t_char_s <= 0;
     c_theta_pending when normalized valid but c_theta unavailable;
-    complete when all required (including physical) present (not used here: no c_theta).
+    complete when all required normalized and physical fields are present.
     """
     if omega_mode <= 0 or t_char_s <= 0:
         return INVALID
-    return C_THETA_PENDING
+    normalized_values = (
+        q_eff,
+        chi_loss,
+        tail_strength,
+        tail_energy_proxy,
+        shape_1,
+        shape_2,
+    )
+    if any(not math.isfinite(value) for value in normalized_values):
+        return INVALID
+    if c_theta is None:
+        return C_THETA_PENDING
+    return COMPLETE
 
 
 def _build_passport_rows(
     events_path: Path,
     lines_path: Path,
+    c_theta: float | None,
 ) -> list[dict[str, str]]:
     """
     Read events CSV and build list of passport row dicts with §11.1 columns.
-    Physical fields (c_theta, L_eff_m, kappa_eff_m^-1) left empty when c_theta not set.
+    Physical fields are emitted only when c_theta is configured and finite.
     """
     if not events_path.exists():
         return []
@@ -138,13 +197,6 @@ def _build_passport_rows(
                 TWO_PI * nu_hz if not math.isnan(nu_hz) and nu_hz > 0 else float("nan")
             )
             t_char_s = tau_s if not math.isnan(tau_s) and tau_s > 0 else float("nan")
-
-            status = _passport_status(omega_mode, t_char_s, False)
-
-            if status == INVALID:
-                omega_mode = float("nan")
-                t_char_s = float("nan")
-
             q_eff = float("nan")
             if (
                 not math.isnan(omega_mode)
@@ -171,6 +223,33 @@ def _build_passport_rows(
                 if parity_change is not None and str(parity_change).strip() != ""
                 else float("nan")
             )
+            status = _passport_status(
+                omega_mode=omega_mode,
+                t_char_s=t_char_s,
+                q_eff=q_eff,
+                chi_loss=chi_loss,
+                tail_strength=tail_strength,
+                tail_energy_proxy=tail_energy_proxy,
+                shape_1=shape_1,
+                shape_2=shape_2,
+                c_theta=c_theta,
+            )
+
+            if status == INVALID:
+                omega_mode = float("nan")
+                t_char_s = float("nan")
+                q_eff = float("nan")
+                chi_loss = float("nan")
+                tail_strength = float("nan")
+                tail_energy_proxy = float("nan")
+                shape_1 = float("nan")
+                shape_2 = float("nan")
+
+            l_eff_m = float("nan")
+            kappa_eff_m_inv = float("nan")
+            if status == COMPLETE and c_theta is not None:
+                l_eff_m = c_theta * t_char_s
+                kappa_eff_m_inv = omega_mode / c_theta
 
             source_catalog = _source_catalog_for_row(
                 element, ion_stage, wavelength_nm, lookup
@@ -185,9 +264,9 @@ def _build_passport_rows(
                 "t_char_s": _to_csv_value(t_char_s),
                 "Q_eff": _to_csv_value(q_eff),
                 "chi_loss": _to_csv_value(chi_loss),
-                "c_theta": "",
-                L_EFF_M: "",
-                KAPPA_EFF_M_INV: "",
+                "c_theta": _to_csv_value(c_theta),
+                L_EFF_M: _to_csv_value(l_eff_m),
+                KAPPA_EFF_M_INV: _to_csv_value(kappa_eff_m_inv),
                 "tail_strength": _to_csv_value(tail_strength),
                 "tail_energy_proxy": _to_csv_value(tail_energy_proxy),
                 "shape_1": _to_csv_value(shape_1),
@@ -214,8 +293,8 @@ def _write_passports_csv(path: Path, rows: list[dict[str, str]]) -> None:
 
 def _completeness_verification(output_path: Path, rows: list[dict[str, str]]) -> None:
     """
-    Verify output: file exists, required columns present, no synthetic physical fill
-    when c_theta_pending. Raises AssertionError on failure.
+    Verify output: file exists, required columns present, and status/physical-field
+    consistency holds for normalized-only and physical-enabled runs.
     """
     assert output_path.exists(), f"Output file does not exist: {output_path}"
     with output_path.open(newline="", encoding="utf-8") as f:
@@ -224,13 +303,24 @@ def _completeness_verification(output_path: Path, rows: list[dict[str, str]]) ->
     for col in ATOMIC_TRANSITION_PASSPORTS_COLUMNS:
         assert col in cols, f"Missing required column: {col}"
     for row in rows:
-        if row.get("passport_status") == C_THETA_PENDING:
+        status = row.get("passport_status")
+        if status in {C_THETA_PENDING, INVALID}:
             assert (
                 row.get(L_EFF_M) or ""
-            ).strip() == "", "c_theta_pending must have empty L_eff_m"
+            ).strip() == "", "c_theta_pending/invalid must have empty L_eff_m"
             assert (
                 row.get(KAPPA_EFF_M_INV) or ""
-            ).strip() == "", "c_theta_pending must have empty kappa_eff_m^-1"
+            ).strip() == "", "c_theta_pending/invalid must have empty kappa_eff_m^-1"
+        if status == COMPLETE:
+            assert (
+                parse_float_or_nan(row.get("c_theta")) > 0
+            ), "complete must have c_theta"
+            assert (
+                parse_float_or_nan(row.get(L_EFF_M)) > 0
+            ), "complete must have L_eff_m"
+            assert (
+                parse_float_or_nan(row.get(KAPPA_EFF_M_INV)) > 0
+            ), "complete must have kappa_eff_m^-1"
 
 
 def _fill_validation(output_path: Path) -> None:
@@ -252,8 +342,10 @@ def _fill_validation(output_path: Path) -> None:
             )
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     """Build atomic_transition_passports.csv; run verification and fill validation."""
+    args = _parse_args(argv)
+    c_theta = _resolve_c_theta(args.c_theta)
     root = project_root()
     data_dir = root / "data"
     events_path = data_dir / "atomic_transition_events.csv"
@@ -271,7 +363,7 @@ def main() -> int:
         _fill_validation(output_path)
         return 1
 
-    rows = _build_passport_rows(events_path, lines_path)
+    rows = _build_passport_rows(events_path, lines_path, c_theta)
     _write_passports_csv(output_path, rows)
     _completeness_verification(output_path, rows)
     _fill_validation(output_path)

@@ -6,7 +6,7 @@ email: vasilyvz@gmail.com
 
 Reads data/atomic_transition_passports.csv and
 data/astrophysical_flash_transition_passports.csv; merges into a single table with
-shared columns per docs/tech_specs/TECH_SPEC.md §11.3;
+shared columns per docs/TECH_SPEC.md §11.3;
 writes data/unified_transition_passports.csv. No synthetic fill (§9). Runs completeness
 verification and fill validation at end.
 Run: python scripts/build_unified_transition_passports.py

@@ -147,7 +147,9 @@ def _mjd_at_mag_threshold(
 
 
 def compute_rise_decay_width(
-    lc_points: list[tuple[float, float]], peak_mjd: float | None, peak_mag: float | None
+    lc_points: list[tuple[float, float]],
+    peak_mjd: float | None,
+    peak_mag: float | None,
 ) -> tuple[float | None, float | None, float | None]:
     """
     Compute rise_time_days, decay_time_days, peak_width_days from light-curve.

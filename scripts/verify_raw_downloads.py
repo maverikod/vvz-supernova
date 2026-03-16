@@ -171,11 +171,11 @@ def check_supernova_downloads(root: Path) -> tuple[bool, list[str]]:
     """
     Validate supernova raw manifest, bulk OSC catalog, and curated OAC artifacts.
 
-    Requires: osc_catalog.json, sn2014j_event.json, sn2011fe_event.json,
-    sn1987a_event.json. Manifest must have top-level 'artifacts' with exactly
-    three entries (SN2014J, SN2011fe, SN1987A). Each artifact is verified via
-    the OAC helper; missing file, unreadable JSON, empty photometry, or count
-    mismatch causes failure. OSC bulk readability is necessary but not sufficient.
+    Requires: osc_catalog.json plus the curated SN2014J/SN2011fe/SN1987A
+    artifacts. Manifest may contain additional OAC artifacts, but the curated
+    trio must always be present. Each listed artifact is verified via the OAC
+    helper; missing file, unreadable JSON, empty photometry, or count mismatch
+    causes failure. OSC bulk readability is necessary but not sufficient.
     """
     raw_dir = root / "raw" / "supernova_raw"
     manifest_path = raw_dir / "manifest.json"
@@ -218,9 +218,9 @@ def check_supernova_downloads(root: Path) -> tuple[bool, list[str]]:
         messages.append("Supernova manifest field 'artifacts' must be a list")
         ok = False
         artifacts = []
-    if len(artifacts) != 3:
+    if len(artifacts) < len(CURATED_OAC_EVENTS):
         messages.append(
-            f"Supernova manifest must have exactly 3 curated artifacts, "
+            f"Supernova manifest must have at least 3 curated artifacts, "
             f"got {len(artifacts)}"
         )
         ok = False
@@ -241,14 +241,7 @@ def check_supernova_downloads(root: Path) -> tuple[bool, list[str]]:
             messages.append(f"Duplicate artifact event_name: {event_name}")
             ok = False
         seen_events.add(event_name)
-        if event_name not in required_names:
-            names = ", ".join(sorted(required_names))
-            messages.append(
-                f"Artifact event_name must be one of {names}, got {event_name!r}"
-            )
-            ok = False
-
-    if sorted(seen_events) != sorted(required_names):
+    if not required_names.issubset(seen_events):
         missing = sorted(required_names - seen_events)
         if missing:
             messages.append(
@@ -308,7 +301,7 @@ def check_supernova_downloads(root: Path) -> tuple[bool, list[str]]:
 
     messages.append(f"  sources_used: {len(used)}")
     messages.append(f"  sources_skipped: {len(skipped)}")
-    messages.append(f"  verified curated artifacts: {verified_count}")
+    messages.append(f"  verified artifacts: {verified_count}")
     return ok, messages
 
 

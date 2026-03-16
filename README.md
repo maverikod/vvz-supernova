@@ -7,9 +7,8 @@ Data pipeline: atomic spectral lines (NIST) and supernova catalogs (OSC, ASAS-SN
 Cleaned outputs go to `data/`; raw downloads to `raw/`. Flat layout (no `src/`).
 
 - **Structure and PyPI**: [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md)
-- **Task spec**: [docs/task_supernova_atomic_pipeline.txt](docs/task_supernova_atomic_pipeline.txt)
-- **Implementation spec**: [docs/IMPLEMENTATION_SPEC.md](docs/IMPLEMENTATION_SPEC.md)
-- **Third tech spec** (event tables, cluster-ready, report): [docs/Third_tech_spec.md](docs/Third_tech_spec.md)
+- **Documentation index**: [docs/README.md](docs/README.md)
+- **Technical specification (TZ):** [docs/TECH_SPEC.md](docs/TECH_SPEC.md) — pipeline, merge, schemas. Sources and algorithms: [docs/DATA_SOURCES_AND_ALGORITHMS.md](docs/DATA_SOURCES_AND_ALGORITHMS.md).
 
 ---
 
@@ -68,7 +67,7 @@ Scripts create the following directories and files. None of `raw/`, `data/`, or 
 
 ## 3. Table fields (schemas)
 
-Full column definitions, types, and units are in **docs/IMPLEMENTATION_SPEC.md** (Sections 3–5). Summary:
+Full column definitions, types, and units are in **docs/TECH_SPEC.md** and **docs/DATA_SOURCES_AND_ALGORITHMS.md**. Summary:
 
 **data/atomic_lines_clean.csv** (and atomic_lines_by_element.csv)  
 Per-line columns: `element`, `ion_state`, `wavelength_vac_nm`, `wavelength_air_nm`, `frequency_hz`, `wavenumber_cm1`, `Aki_s^-1`, `intensity`, `Ei_cm1`, `Ek_cm1`, `lower_configuration`, `upper_configuration`, `lower_term`, `upper_term`, `lower_J`, `upper_J`, `line_type`, `source_catalog`, `source_url`.
@@ -187,7 +186,7 @@ python scripts/generate_plots.py
 
 CSV format: UTF-8, decimal point `.`, no thousands separator in numbers.
 
-Third spec: energy in eV (deltaE_eV; conversion from cm⁻¹ uses 8065.54429); times in s (tau_s) or days; no synthetic or invented values; cells left empty when source data are missing. See **docs/Third_tech_spec.md** for column definitions and reproducibility.
+TZ: energy in eV (deltaE_eV; conversion from cm⁻¹ uses 8065.54429); times in s (tau_s) or days; no synthetic data; empty cells when source is missing. See **docs/TECH_SPEC.md** for schemas and reproducibility.
 
 ---
 

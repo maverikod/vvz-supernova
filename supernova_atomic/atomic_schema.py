@@ -5,7 +5,7 @@ Author: Vasiliy Zdanovskiy
 email: vasilyvz@gmail.com
 
 Constants and functions for cleaning, normalizing, and writing atomic CSVs
-per IMPLEMENTATION_SPEC Sections 3.2, 3.4.
+per current TZ (docs/TECH_SPEC.md).
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pathlib import Path
 # Speed of light in m/s (SI)
 C_M_PER_S = 299_792_458
 
-# Schema per IMPLEMENTATION_SPEC Sections 3.2, 3.4
+# Schema per current TZ (docs/TECH_SPEC.md)
 ATOMIC_LINE_COLUMNS = [
     "element",
     "ion_state",

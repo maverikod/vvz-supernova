@@ -6,7 +6,7 @@ email: vasilyvz@gmail.com
 
 Reads data/unified_transition_passports.csv; computes log-scale features only for rows
 with finite required values; writes data/cluster_ready_transition_passports.csv per
-docs/tech_specs/TECH_SPEC.md §11.4. Rows without c_theta (hence no L_eff or kappa) are
+docs/TECH_SPEC.md §11.4. Rows without c_theta (hence no L_eff or kappa) are
 excluded and reported. Implements completeness verification and fill validation.
 Run: python scripts/build_cluster_ready_transition_passports.py
 """
@@ -84,6 +84,7 @@ def _row_to_cluster_ready(
         return (None, "kappa_eff_m^-1 missing or non-positive (c_theta unavailable)")
 
     def str_or_empty(key: str) -> str:
+        """Return row[key] stripped, or empty string if missing or None."""
         v = row.get(key)
         return (v or "").strip() if v is not None else ""
 

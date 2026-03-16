@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 from supernova_atomic.nist_parser import is_nist_error_text
 
 # Required elements per current TZ
-# (docs/tech_specs/fourth_transient_generalization/TECH_SPEC.md)
+# (docs/TECH_SPEC.md)
 REQUIRED_ELEMENTS = [
     "H",
     "He",

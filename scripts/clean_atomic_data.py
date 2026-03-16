@@ -9,7 +9,7 @@ columns per current TZ; computes frequency_hz; cleans numerics; deduplicates;
 writes atomic_lines_clean.csv, atomic_lines_by_element.csv,
 atomic_transition_summary.csv. When raw has no parseable line data, writes
 schema-only CSVs so downstream can run.
-TZ ref: docs/tech_specs/fourth_transient_generalization/TECH_SPEC.md
+TZ ref: docs/TECH_SPEC.md
 Run: python scripts/clean_atomic_data.py
 """
 

@@ -1,0 +1,4 @@
+source,url,download_date_utc,dataset_id,note
+NIST ASD,https://physics.nist.gov/PhysRefData/ASD/lines_form.html,2026-03-15T17:38:55.719190+00:00,51_files,atomic_lines_raw
+Open Supernova Catalog via Open Astronomy Catalog API,https://api.astrocats.space/,2026-03-15T13:42:57.556394+00:00,"SN2014J,SN2011fe,SN1987A",astrophysical_transient_raw
+,,2026-03-15T23:40:16.966699+00:00,,supernova_raw

@@ -7,7 +7,7 @@ email: vasilyvz@gmail.com
 Run from project root: python scripts/check_source_fields.py
 Performs sample requests to NIST ASD and OAC, reports which required
 fields appear. Required field lists: ATOMIC_REQUIRED, SN_CATALOG_REQUIRED,
-SN_LIGHTCURVE_REQUIRED in this script; context: docs/refactoring/TECH_SPEC.md.
+SN_LIGHTCURVE_REQUIRED in this script; context: docs/TECH_SPEC.md.
 """
 
 from __future__ import annotations
@@ -191,7 +191,7 @@ def check_oac_api() -> tuple[bool, list[str]]:
 def main() -> int:
     """Run source checks and print report."""
     print("Source field check (required task parameters)\n")
-    print("Required fields: see script constants; docs/refactoring/TECH_SPEC.md\n")
+    print("Required fields: see script constants; docs/TECH_SPEC.md\n")
 
     all_ok = True
 

@@ -86,6 +86,27 @@ def _one_event_payload(
     }
 
 
+def _artifact_entry(
+    event_name: str,
+    raw_file: str,
+    *,
+    photometry_points: int,
+    usable_photometry_points: int,
+    sha256_char: str = "0",
+) -> dict[str, object]:
+    """Build one manifest artifact entry."""
+    return {
+        "event_name": event_name,
+        "metadata_url": f"https://api.astrocats.space/{event_name}",
+        "photometry_url": f"https://api.astrocats.space/{event_name}/photometry",
+        "raw_file": raw_file,
+        "download_date_utc": "2026-03-15T00:00:00+00:00",
+        "photometry_points": photometry_points,
+        "usable_photometry_points": usable_photometry_points,
+        "sha256": sha256_char * 64,
+    }
+
+
 def _write_supernova_fixture(
     root: Path,
     *,
@@ -154,18 +175,12 @@ def _write_supernova_fixture(
             usable = 1
         points = len(payload[event_name]["photometry"])
         artifacts.append(
-            {
-                "event_name": event_name,
-                "metadata_url": f"https://api.astrocats.space/{event_name}",
-                "photometry_url": (
-                    f"https://api.astrocats.space/{event_name}/photometry"
-                ),
-                "raw_file": raw_file,
-                "download_date_utc": "2026-03-15T00:00:00+00:00",
-                "photometry_points": points,
-                "usable_photometry_points": usable,
-                "sha256": "0" * 64,
-            }
+            _artifact_entry(
+                event_name,
+                raw_file,
+                photometry_points=points,
+                usable_photometry_points=usable,
+            )
         )
 
     if artifacts_override is not None:
@@ -370,7 +385,7 @@ class RawDownloadVerificationTests(unittest.TestCase):
             self.assertFalse(ok)
             self.assertTrue(
                 any(
-                    "exactly 3 curated artifacts" in message and "got 2" in message
+                    "at least 3 curated artifacts" in message and "got 2" in message
                     for message in messages
                 )
             )

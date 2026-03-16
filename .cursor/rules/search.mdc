@@ -1,0 +1,14 @@
+---
+description: 
+alwaysApply: true
+---
+
+Theory search (docs/search) — полнотекстовый поиск по блокам теории в SQLite. Пути относительно docs/search/.
+
+Запуск из корня проекта:
+python docs/search/engine/search_theory_index.py --mode sqlite_search --phrase "фраза" [--format text|json]
+Без указания путей: по умолчанию используются docs/search/db/ (шарды ALL_theory_blocks.chain.part*.sqlite). Для sqlite_search индекс --index не нужен.
+Логические запросы: --query "(A OR B) AND C" (нужен pip install pyparsing).
+Другие режимы: --mode help; для validate/assemble/sqlite_build по умолчанию берутся --index docs/search/db/ALL_index.yaml и --theory docs/search/db/All.md, если задан THEORY_SEARCH_ROOT.
+Справка: docs/search/README.md, детали в docs/search/doc/ (QUICK_REFERENCE, AI_DOCUMENTATION).
+При поиске по теории используй этот инструмент; пути и примеры — относительно docs/search/.
